@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>NiceHash BTC Mining Profit Calculator</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 40px;
+        background: #f9f9f9;
+        color: #333;
+      }
+      h2 {
+        color: #222;
+      }
+      label {
+        display: block;
+        margin: 12px 0 4px;
+      }
+      input,
+      select {
+        padding: 6px;
+        width: 240px;
+      }
+      button {
+        margin-top: 16px;
+        padding: 10px 20px;
+      }
+      .result {
+        margin-top: 24px;
+        padding: 12px;
+        background: #e6f7e6;
+        border: 1px solid #b3deb3;
+      }
+      .section {
+        margin-bottom: 32px;
+      }
+      table {
+        margin-top: 12px;
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        border: 1px solid #ccc;
+        padding: 8px;
+      }
+      th {
+        background: #eee;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>NiceHash BTC Mining Profit Calculator</h2>
+
+    <div class="section">
+      <h3>Step 1: Calculate Pool Yield</h3>
+      <label for="actualHashrate">Your 24h Hashrate (TH/s)</label>
+      <input type="number" id="actualHashrate" value="1466.07" />
+
+      <label for="actualPayout">Pool Payout (sats)</label>
+      <input type="number" id="actualPayout" value="73536" />
+
+      <button onclick="calculateYield()">Calculate Pool Yield</button>
+
+      <div class="result" id="yieldResult"></div>
+    </div>
+
+    <div class="section">
+      <h3>Step 2: Profitability Calculation</h3>
+      <label for="yield">Pool Yield (sats per TH/s/day)</label>
+      <input type="number" id="yield" value="50.16" />
+
+      <label for="price">NiceHash Base Price (BTC per EH/day)</label>
+      <input type="number" id="price" value="0.44" />
+
+      <label for="orderFee">NiceHash Order Fee (%)</label>
+      <input type="number" id="orderFee" value="3.1" step="0.1" />
+
+      <label for="hashrate">Hashrate Rented (in TH/s)</label>
+      <input type="number" id="hashrate" value="1000" />
+
+      <button onclick="calculateProfit()">Calculate Profit</button>
+
+      <div class="result" id="resultBox"></div>
+    </div>
+
+    <div class="section">
+      <h3>Track Transfers & Mining Returns</h3>
+
+      <label>Date</label>
+      <input type="date" id="logDate" />
+
+      <label>Type</label>
+      <select id="logType">
+        <option value="transfer">Transfer to NiceHash (cost)</option>
+        <option value="mining">Mining Return (income)</option>
+      </select>
+
+      <label>Amount (BTC)</label>
+      <input type="number" id="logAmount" step="0.00000001" />
+
+      <button onclick="addLog()">Add Entry</button>
+
+      <div class="result" id="logSummary">
+        <strong>Total Invested:</strong> <span id="invested">0</span> BTC<br />
+        <strong>Total Mined:</strong> <span id="mined">0</span> BTC<br />
+        <strong>Net Profit:</strong> <span id="net">0</span> BTC (<span
+          id="netUSD"
+          >$0.00</span
+        >)
+      </div>
+
+      <h4>Entries:</h4>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Amount (BTC)</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="logTableBody"></tbody>
+      </table>
+
+      <button onclick="exportLogs()">Export Data</button>
+      <input type="file" id="importFile" accept=".json" />
+      <button onclick="importLogs()">Import Data</button>
+    </div>
+
+    <script>
+      let btcPriceUSD = 0;
+      let logs = [];
+
+      async function fetchBTCPrice() {
+        try {
+          const res = await fetch(
+            "https://api.coinbase.com/v2/prices/spot?currency=USD"
+          );
+          const data = await res.json();
+          btcPriceUSD = parseFloat(data.data.amount);
+        } catch (e) {
+          alert("Failed to fetch BTC price.");
+        }
+      }
+
+      function calculateYield() {
+        const hashrateTH = parseFloat(
+          document.getElementById("actualHashrate").value
+        );
+        const payoutSats = parseFloat(
+          document.getElementById("actualPayout").value
+        );
+        if (hashrateTH === 0) return alert("Hashrate cannot be zero.");
+        const yieldPerTH = payoutSats / hashrateTH;
+        document.getElementById("yield").value = yieldPerTH.toFixed(2);
+        document.getElementById(
+          "yieldResult"
+        ).innerHTML = `<strong>Calculated Yield:</strong> ${yieldPerTH.toFixed(
+          2
+        )} sats/TH/s/day`;
+      }
+
+      function calculateProfit() {
+        const yieldPerTH = parseFloat(document.getElementById("yield").value);
+        const basePricePerEH = parseFloat(
+          document.getElementById("price").value
+        );
+        const orderFeePercent = parseFloat(
+          document.getElementById("orderFee").value
+        );
+        const rentedTH = parseFloat(document.getElementById("hashrate").value);
+        const adjustedPricePerEH = basePricePerEH * (1 + orderFeePercent / 100);
+        const costBTC = adjustedPricePerEH * (rentedTH / 1_000_000);
+        const yieldTotalSats = yieldPerTH * rentedTH;
+        const revenueBTC = yieldTotalSats / 100_000_000;
+        const profitBTC = revenueBTC - costBTC;
+        const profitSats = profitBTC * 100_000_000;
+        const roi = (profitBTC / costBTC) * 100;
+
+        let usdInfo = "";
+        if (btcPriceUSD > 0) {
+          const revenueUSD = revenueBTC * btcPriceUSD;
+          const costUSD = costBTC * btcPriceUSD;
+          const profitUSD = profitBTC * btcPriceUSD;
+          usdInfo = `
+          <hr>
+          <strong>BTC/USD:</strong> $${btcPriceUSD.toFixed(2)}<br>
+          <strong>Revenue:</strong> $${revenueUSD.toFixed(2)}<br>
+          <strong>Cost:</strong> $${costUSD.toFixed(2)}<br>
+          <strong>Profit:</strong> $${profitUSD.toFixed(2)}<br>
+        `;
+        }
+
+        document.getElementById("resultBox").innerHTML = `
+        <strong>Results for ${rentedTH} TH/s:</strong><br><br>
+        <strong>Adjusted NiceHash Price:</strong> ${adjustedPricePerEH.toFixed(
+          8
+        )} BTC per EH/day<br>
+        <strong>Daily Revenue:</strong> ${revenueBTC.toFixed(8)} BTC<br>
+        <strong>Daily Cost:</strong> ${costBTC.toFixed(8)} BTC<br>
+        <strong>Net Profit:</strong> ${profitBTC.toFixed(8)} BTC (${Math.round(
+          profitSats
+        )} sats)<br>
+        <strong>ROI:</strong> ${roi.toFixed(2)}%${usdInfo}
+      `;
+      }
+
+      function addLog() {
+        const date = document.getElementById("logDate").value;
+        const type = document.getElementById("logType").value;
+        const amount = parseFloat(document.getElementById("logAmount").value);
+        if (!date || isNaN(amount))
+          return alert("Please enter a valid date and BTC amount.");
+        logs.push({ date, type, amount: +amount.toFixed(8) });
+        renderLogs();
+      }
+
+      function removeLog(index) {
+        logs.splice(index, 1);
+        renderLogs();
+      }
+
+      function renderLogs() {
+        let invested = 0,
+          mined = 0;
+        const tbody = document.getElementById("logTableBody");
+        tbody.innerHTML = "";
+
+        logs.forEach((log, index) => {
+          if (log.type === "transfer") invested += log.amount;
+          else if (log.type === "mining") mined += log.amount;
+
+          const row = document.createElement("tr");
+          row.innerHTML = `
+          <td>${log.date}</td>
+          <td>${log.type}</td>
+          <td>${log.amount.toFixed(8)}</td>
+          <td><button onclick="removeLog(${index})">Remove</button></td>
+        `;
+          tbody.appendChild(row);
+        });
+
+        const net = mined - invested;
+        document.getElementById("invested").textContent = invested.toFixed(8);
+        document.getElementById("mined").textContent = mined.toFixed(8);
+        document.getElementById("net").textContent = net.toFixed(8);
+        document.getElementById("netUSD").textContent =
+          btcPriceUSD > 0 ? `$${(net * btcPriceUSD).toFixed(2)}` : "$0.00";
+      }
+
+      function exportLogs() {
+        const blob = new Blob([JSON.stringify(logs, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "mining_logs.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function importLogs() {
+        const fileInput = document.getElementById("importFile");
+        const file = fileInput.files[0];
+        if (!file) return alert("Choose a JSON file first.");
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            logs = JSON.parse(e.target.result);
+            renderLogs();
+          } catch (e) {
+            alert("Invalid JSON file.");
+          }
+        };
+        reader.readAsText(file);
+      }
+
+      fetchBTCPrice();
+    </script>
+  </body>
+</html>
