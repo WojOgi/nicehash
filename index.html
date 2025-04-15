@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <title>NiceHash BTC Mining Profit Calculator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
       body {
         font-family: Arial, sans-serif;
@@ -47,6 +48,10 @@
       }
       th {
         background: #eee;
+      }
+      canvas {
+        max-width: 100%;
+        margin-top: 30px;
       }
     </style>
   </head>
@@ -129,9 +134,12 @@
       <button onclick="importLogs()">Import Data</button>
     </div>
 
+    <canvas id="profitChart"></canvas>
+
     <script>
       let btcPriceUSD = 0;
       let logs = [];
+      let chart;
 
       async function fetchBTCPrice() {
         try {
@@ -224,30 +232,82 @@
 
       function renderLogs() {
         let invested = 0,
-          mined = 0;
+          mined = 0,
+          net = 0;
         const tbody = document.getElementById("logTableBody");
         tbody.innerHTML = "";
+        const labels = [],
+          btcProfits = [],
+          usdProfits = [];
 
-        logs.forEach((log, index) => {
-          if (log.type === "transfer") invested += log.amount;
-          else if (log.type === "mining") mined += log.amount;
+        logs
+          .sort((a, b) => new Date(a.date) - new Date(b.date))
+          .forEach((log, index) => {
+            if (log.type === "transfer") invested += log.amount;
+            else if (log.type === "mining") mined += log.amount;
 
-          const row = document.createElement("tr");
-          row.innerHTML = `
+            const row = document.createElement("tr");
+            row.innerHTML = `
           <td>${log.date}</td>
           <td>${log.type}</td>
           <td>${log.amount.toFixed(8)}</td>
           <td><button onclick="removeLog(${index})">Remove</button></td>
         `;
-          tbody.appendChild(row);
-        });
+            tbody.appendChild(row);
 
-        const net = mined - invested;
+            net = mined - invested;
+            labels.push(log.date);
+            btcProfits.push(net.toFixed(8));
+            usdProfits.push((net * btcPriceUSD).toFixed(2));
+          });
+
         document.getElementById("invested").textContent = invested.toFixed(8);
         document.getElementById("mined").textContent = mined.toFixed(8);
         document.getElementById("net").textContent = net.toFixed(8);
         document.getElementById("netUSD").textContent =
           btcPriceUSD > 0 ? `$${(net * btcPriceUSD).toFixed(2)}` : "$0.00";
+
+        if (chart) chart.destroy();
+        const ctx = document.getElementById("profitChart").getContext("2d");
+        chart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: "Cumulative Profit (BTC)",
+                data: btcProfits,
+                borderColor: "green",
+                tension: 0.3,
+                yAxisID: "btc",
+              },
+              {
+                label: "Cumulative Profit (USD)",
+                data: usdProfits,
+                borderColor: "blue",
+                tension: 0.3,
+                yAxisID: "usd",
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            interaction: { mode: "index", intersect: false },
+            scales: {
+              btc: {
+                type: "linear",
+                position: "left",
+                title: { display: true, text: "BTC" },
+              },
+              usd: {
+                type: "linear",
+                position: "right",
+                title: { display: true, text: "USD" },
+                grid: { drawOnChartArea: false },
+              },
+            },
+          },
+        });
       }
 
       function exportLogs() {
